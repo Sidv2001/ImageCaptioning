@@ -11,17 +11,19 @@ class ParamArgs:
     speaker_name: str = "Speaker_Test"
     listener_name: str = "Listener_Test"
     seed: int = None # Random seed for training
-    device: str = "gpu"
+    batch_size: int = 1
+    device: str = "cuda"
     epochs: int = 100
     optimizer: str = "adam"
-    lr: float = 0.01
+    lr: float = 0.0001
     weight_decay: float = 1e-5
     step_size: int = 60
-    image_batch_size : int = 2
+    gamma: float = 0.1
+    image_batch_size : int = 1
     dictionary: str = "prag_dictionary.json"
-    train_dataset: str = "train/list_prag_train.json"
-    val_dataset: str = "train/list_prag_val.json"
-    test_dataset: str = "test/list_prag_test.json"
+    train_dataset: str = "train/speaker_train.json"
+    val_dataset: str = "train/speaker_val.json"
+    test_dataset: str = "test/speaker_test.json"
 
     def __init__(self, **kwargs):
         super().__init__()

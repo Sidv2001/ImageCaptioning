@@ -9,6 +9,7 @@ import numpy as np
 import re
 from PIL import Image
 import torchvision
+import torchvision.transforms as transforms
 
 
 class Pragmatics_Dataloader(Dataset):
@@ -49,10 +50,16 @@ class Pragmatics_Dataloader(Dataset):
     def getImage(self, img_dir, img_idt):
         """ generator tensor for referent image """
         script_dir = os.path.dirname(os.path.abspath(__file__))
-        img_path = script_dir + "\\" + self.dataset_type + "\\images" + "\\" + img_dir + "\\" + self.dataset_type + "-" + img_idt + ".png"
+        img_path = os.path.join(script_dir , self.dataset_type , "images" , img_dir , self.dataset_type + "-" + img_idt + ".png")
         img = Image.open(img_path)
-        transforms = torchvision.transforms.Compose([torchvision.transforms.ToTensor(), lambda x: x[:3]])
-        t_img = transforms(img)
+        transformation = transforms.Compose([
+            transforms.Resize(256),
+            transforms.CenterCrop(224),
+            transforms.ToTensor(),
+            lambda x: x[:3],
+            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+        ])
+        t_img = transformation(img)
         return t_img
 
     def __len__(self):
@@ -100,3 +107,6 @@ class Listener_Dataset(Pragmatics_Dataloader):
             torch.cat(images, 0),
             correct
         )
+
+    
+
