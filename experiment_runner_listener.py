@@ -3,7 +3,7 @@ import json
 
 Learning_Rates = [0.1, 0.01, 0.0001, 0.001, 0.00001]
 
-lstm_input_sizes = [400, 500, 600] #Name the policy you want to use from policy net, add new policies to policy net if you wish to customize
+lstm_input_sizes = [400, 500, 600] 
 
 optimizer = ["adam"]
 
@@ -70,14 +70,14 @@ for lr in Learning_Rates:
                                 'weight_decay' : weight,
                                 'step_size' : step,
                                 'gamma' : gamma,
-                                "train_dataset" : "train/speaker_train.json",
-                                "val_dataset" : "train/speaker_val.json",
-                                "test_dataset" : "test/speaker_test.json",
+                                "train_dataset" : "train/list_prag_train.json",
+                                "val_dataset" : "train/list_prag_val.json",
+                                "test_dataset" : "test/list_prag_test.json",
                                 "device" : "cuda"
 
                                 }
                                 script_dir = os.path.dirname(os.path.abspath(__file__))
-                                name = "_".join(["speaker", str(lr), str(lstm_input_size), str(weight)]) #Add whichever lists of yours that have more than one parameter
+                                name = "_".join(["listener", str(lr), str(lstm_input_size), str(weight)]) #Add whichever lists of yours that have more than one parameter
                                 cfg_file_name = os.path.join(script_dir, "configs", name + ".json")
                                 f = open(cfg_file_name, "w")
                                 jsonString = json.dumps(parameter_dict)
@@ -95,6 +95,6 @@ for lr in Learning_Rates:
                                 f.write("#SBATCH -t 15:00:00                           # Time limit (hh:mm:ss)" + "\n")
                                 f.write("#SBATCH --partition=default_partition       # Request partition" + "\n")
                                 f.write("#SBATCH --gres=gpu:1080ti:1                  # Type/number of GPUs needed" + "\n")
-                                f.write("python speaker_model_final.py --config_name '" + name + "'")
+                                f.write("python listener_model_final.py --config_name '" + name + "'")
                                 f.close()
                                 os.system("sbatch --requeue '" + name + ".sub'")

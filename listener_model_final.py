@@ -30,7 +30,6 @@ class AvgResult:
     """
 
     sum_loss: float
-    sum_hardmax_reward: float
     num_samples: int
     name: str
 
@@ -40,9 +39,6 @@ class AvgResult:
     def avg_loss(self):
         return self._avg(self.sum_loss)
 
-    def avg_hardmax_reward(self):
-        return self._avg(self.sum_hardmax_reward)
-
     def to_dict(self):
         """Convert the object to a dictionary
 
@@ -51,14 +47,13 @@ class AvgResult:
         """
         return {
             "avg_loss": self.avg_loss(),
-            "avg_hardmax_reward": self.avg_hardmax_reward()
         }
 
     @property
     def log_str(self):
         return (
-            f"{self.name} Loss {self.avg_loss():.4f}, "
-            f"{self.name} Hardmax Reward {self.avg_hardmax_reward():.4f}, "
+            f"{self.name} Loss {self.avg_loss():.4f} "
+
         )
 
 
@@ -78,26 +73,33 @@ class BestManager:
             self.best_model = network.state_dict()
             print(msg)
 
-class Speaker_Model(torch.nn.Module):
-    def __init__(self, lstm, embedding, device):
-        super(Speaker_Model, self).__init__()
+class Listener_Model(torch.nn.Module):
+    def __init__(self, lstm, embedding, post_lstm, device):
+        super(Listener_Model, self).__init__()
         self.device = device
         output_size = lstm["input_size"] - 300
-        self.speaker_ref = (self.construct_resnet(output_size)).to(self.device)
-        self.speaker_lstm = (self.construct_lstm(lstm)).to(self.device)
+        self.listener_ref = (self.construct_resnet(output_size)).to(self.device)
+        self.listener_lstm = (self.construct_lstm(lstm)).to(self.device)
         self.embedding = (self.construct_embedding(embedding)).to(self.device)
         self.embedding.requires_grad_ = False
+        self.post_lstm = self.construct_sequential(post_lstm)
     
     def forward(self, example):
-        tkn_sentence, sentence_img = example
-        ref = self.speaker_ref(sentence_img.to(self.device))
-        length = tkn_sentence.shape[1]
-        lstm_ref = ref.expand(1, length, -1)
-        embed_sentence = self.embedding(tkn_sentence.to(self.device))
-        res = torch.cat([embed_sentence, lstm_ref], dim=2)
-        lstm_out, (_, _) = self.speaker_lstm(res.to(self.device))
-        lstm_fin = torch.squeeze(lstm_out)
-        return lstm_fin
+        tkn_sentence, sentence_imgs, correct = example
+        imgs = torch.squeeze(sentence_imgs)
+        sentence = torch.squeeze(tkn_sentence)
+        ref = self.listener_ref(imgs.to(self.device))
+        embed_sentence = self.embedding(sentence.to(self.device))
+        length = embed_sentence.shape[0]
+        num_imgs = ref.shape[0]
+        lstm_ref = torch.unsqueeze(ref, 1).expand(-1, length, -1)
+        lstm_sent = torch.unsqueeze(embed_sentence, 0).expand(num_imgs, -1, -1)
+        res = torch.cat([lstm_sent, lstm_ref], dim=2)
+        lstm_out, (_, _) = self.listener_lstm(res)
+        fin_lstm = torch.sum(lstm_out, 1)
+        fin = self.post_lstm(fin_lstm)
+        return fin
+
 
     def construct_resnet(self, output_size):
         model =  models.resnet18(pretrained=True)
@@ -192,8 +194,8 @@ class Speaker_Model(torch.nn.Module):
 
 
 
-class Speaker:
-    """Speaker Training Model. It contains methods for optimizing and testing a an image captioning model 
+class Listener:
+    """listener Training Model. It contains methods for optimizing and testing a an image captioning model 
 
     Args:
         param_args (global_config.ParamArgs): Parameters for training
@@ -206,9 +208,9 @@ class Speaker:
         test_dir = param_args.train_dataset
         dictionary_dir = param_args.dictionary
 
-        train_data = dataloader.Speaker_Dataset(dictionary_dir, train_dir, "train")
-        val_data = dataloader.Speaker_Dataset(dictionary_dir, val_dir, "train")
-        test_data = dataloader.Speaker_Dataset(dictionary_dir, test_dir, "test") 
+        train_data = dataloader.Listener_Dataset(dictionary_dir, train_dir, "train")
+        val_data = dataloader.Listener_Dataset(dictionary_dir, val_dir, "train")
+        test_data = dataloader.Listener_Dataset(dictionary_dir, test_dir, "test") 
 
         self.train_loader = torch.utils.data.DataLoader(train_data, batch_size=1,
                         shuffle=True, num_workers=6)
@@ -222,7 +224,7 @@ class Speaker:
         self.lr = param_args.lr
         self.weight_decay = param_args.weight_decay
         self.step_size = param_args.step_size
-        self.network = Speaker_Model(param_args.speaker_lstm, param_args.embedding, self.device).to(self.device)
+        self.network = Listener_Model(param_args.listener_lstm, param_args.embedding, param_args.post_lstm, self.device).to(self.device)
         self.dictionary = self.load_dictionary(param_args.dictionary)
         self.optimizer = self.construct_optimizer(param_args.optimizer, param_args.lr, param_args.weight_decay)
         self.loss_fn =  nn.CrossEntropyLoss()
@@ -245,7 +247,7 @@ class Speaker:
     def construct_optimizer(self, optim_type, learning_rate, L2):
         """
         Constructs the optimizer for the model, and lists out which of the parameters are
-        updated based on the gradients calculated. (This is Important in the Pragmatic_Speaker model)
+        updated based on the gradients calculated. (This is Important in the Pragmatic_listener model)
         """
         if optim_type == "sgd":
             return torch.optim.SGD(self.network.parameters(), lr=learning_rate, weight_decay=L2)
@@ -273,23 +275,15 @@ class Speaker:
             Token_Sentence (torch.Long): A tokenized sentence that is the caption for that image. 
 
         Returns:
-            tuple : batch_loss, batch_hardmax_loss
+            tuple : batch_loss
         """
-        tkn_sentence, sentence_img = example
+        tkn_sentence, sentence_img, correct = example
 
-        tkn_sentence_train = tkn_sentence[:, :-1]
-        tkn_sentence_test = tkn_sentence[:, 1:]
-
-        predicted = self.network((tkn_sentence_train, sentence_img))
-
-        out = torch.squeeze(predicted)
-        target = torch.squeeze(tkn_sentence_test).to(self.device)
-        batch_loss = self.loss_fn(out, target)
-        hardmax = torch.argmax(out, axis=1)
-        hardmax_score = (hardmax == target).sum() / (target.shape[0])
-
+        predicted = self.network(example).reshape(1, -1)
+        target = torch.tensor(correct)
+        batch_loss = self.loss_fn(predicted, target.to(self.device))
         
-        return batch_loss, hardmax_score
+        return batch_loss
 
 
     def train(self, loader):
@@ -306,10 +300,9 @@ class Speaker:
         num_samples = 0
         batch = 0
         batch_loss = 0
-        sum_hardmax_reward = 0.0
         for batch_idx, d in enumerate(loader):
             self.optimizer.zero_grad()
-            loss_val, hardmax_score = self.process_batch(d)
+            loss_val = self.process_batch(d)
             batch_loss += loss_val
             batch += 1
             if batch >= self.batch_size:
@@ -318,10 +311,9 @@ class Speaker:
                 batch_loss = 0
                 batch = 0
             sum_loss += float(loss_val.clone().detach())
-            sum_hardmax_reward += float(hardmax_score.clone().detach())
             num_samples += 1
 
-        return AvgResult(sum_loss, sum_hardmax_reward, num_samples, "Train")
+        return AvgResult(sum_loss, num_samples, "Train")
 
     def test(self, loader):
         """Evaluate the policy network on loader
@@ -338,15 +330,13 @@ class Speaker:
 
         sum_loss = 0.0
         num_samples = 0
-        sum_hardmax_reward = 0.0
         for batch_idx, d in enumerate(loader):
             with torch.set_grad_enabled(False):
-                loss_val, hardmax_score = self.process_batch(d)
+                loss_val = self.process_batch(d)
                 sum_loss += float(loss_val.clone().detach())
-                sum_hardmax_reward += float(hardmax_score.clone().detach())
                 num_samples += 1
 
-        return AvgResult(sum_loss, sum_hardmax_reward, num_samples, "Val")
+        return AvgResult(sum_loss, num_samples, "Val")
 
     def optimize(self):
         """Perform train+val loop
@@ -386,8 +376,7 @@ class Speaker:
                 score=val_result.avg_loss(),
                 epoch=epoch, network=self.network, msg=(
                     f"Best validation set loss at epoch "
-                    f"{epoch}: {val_result.avg_loss():.4f}, "
-                    f"{epoch}: {val_result.avg_hardmax_reward():.4f} "
+                    f"{epoch}: {val_result.avg_loss():.4f}"
                 )
             )
             print("")
@@ -447,25 +436,23 @@ def main():
             torch.backends.cudnn.benchmark = False
 
     
-    speaker = Speaker(param_args)
+    listener = Listener(param_args)
 
     (
         train_results,
         val_results,
         best_val_softmax_ips_model,
-    ) = speaker.optimize()  # Perform train + val loops for param_args.epochs
+    ) = listener.optimize()  # Perform train + val loops for param_args.epochs
 
-    test_results = speaker.test(
-        speaker.test_loader
+    test_results = listener.test(
+        listener.test_loader
     )  # This performs testing using the model that achieve the best valiation set softmax IPS Objective
 
     # Now log all the results
     out_dir = prepare_output_folder(config_args.config_name)
 
     print(
-        f"Test Loss {test_results.avg_loss():.4f} ,",
-        f"Test Loss {test_results.avg_hardmax_reward():.4f} "
-
+        f"Test Loss {test_results.avg_loss():.4f} "
     )
     with open(os.path.join(out_dir, f"test_result.json"), "w+") as file:
         file.write(json.dumps(test_results.to_dict()))
@@ -485,7 +472,7 @@ def main():
         file.write(json.dumps(param_args.__dict__))
 
     print(f"Saving the results on train/val/test sets in {out_dir}")
-    plot_names = ["avg_loss", "avg_hardmax_reward"]
+    plot_names = ["avg_loss"]
     for results, phase_name in [
         (train_results, "train"),
         (val_results, "val"),

@@ -11,9 +11,9 @@ class ParamArgs:
     speaker_name: str = "Speaker_Test"
     listener_name: str = "Listener_Test"
     seed: int = None # Random seed for training
-    batch_size: int = 1
+    batch_size: int = 10
     device: str = "cuda"
-    epochs: int = 100
+    epochs: int = 250
     optimizer: str = "adam"
     lr: float = 0.0001
     weight_decay: float = 1e-5
@@ -27,12 +27,16 @@ class ParamArgs:
 
     def __init__(self, **kwargs):
         super().__init__()
-        self.referent = kwargs["referent"]
         self.speaker_lstm = kwargs["speaker_lstm"]
         self.embedding = kwargs["embedding"]
         self.listener_lstm = kwargs["listener_lstm"]
         self.post_lstm = kwargs["post_lstm"]
-
+        self.train_dataset = kwargs["train_dataset"]
+        self.val_dataset = kwargs["val_dataset"]
+        self.test_dataset = kwargs["test_dataset"]
+        self.weight_decay = float(kwargs["weight_decay"])
+        self.lr = float(kwargs["lr"])
+        
         
 
 

@@ -37,6 +37,8 @@ class Pragmatics_Dataloader(Dataset):
             sentence_list = re.findall(r"[\w']+|[.,!?;]", sentence)
             length = len(sentence_list)
             token_list = torch.zeros(length + 2, dtype=torch.long)
+            token_list[0] = self.dictionary["start_sentence"]
+            token_list[length + 1] = self.dictionary["end_sentence"]
             for i in range(length):
                 try:
                     word = sentence_list[i]
@@ -45,6 +47,7 @@ class Pragmatics_Dataloader(Dataset):
                 except KeyError:
                     idx = self.dictionary["unknown_word"]
                     token_list[i+1] = idx
+            
             self.dataset[j]["token_sentence"] = token_list
     
     def getImage(self, img_dir, img_idt):
@@ -101,11 +104,15 @@ class Listener_Dataset(Pragmatics_Dataloader):
             choice = np.random.choice(6)
             image = self.getImage(img_directory, img_identifier + "-" + str(choice))
             images.append(image.expand(1, -1, -1, -1))
-            correct = -1
+            correct = images[-1]
+            rest = images[:-1]
+            num = int(torch.randint(0, (len(rest) + 1), (1,)))
+            rest.insert(num, correct)
+
         return (
             example["token_sentence"],
-            torch.cat(images, 0),
-            correct
+            torch.cat(rest, 0),
+            num
         )
 
     
